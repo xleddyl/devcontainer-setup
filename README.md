@@ -25,7 +25,7 @@ You need Docker Desktop, the `devcontainer` CLI (`npm install -g @devcontainers/
 One command, `dc`. Run it with no arguments to see the usage.
 
 ```
-dc [-t|--tmux] [-r|--remote] [-i|--isolated] <agent> [args...]
+dc [-t] [-r] [-i] [-a <rule>]... <agent> [args...]
 ```
 
 | Agent | Tool |
@@ -38,6 +38,7 @@ dc [-t|--tmux] [-r|--remote] [-i|--isolated] <agent> [args...]
 | `-t`, `--tmux` | Run the session inside tmux |
 | `-r`, `--remote` | Remote control mode |
 | `-i`, `--isolated` | Mount only the current project, not the whole `Developer` folder |
+| `-a`, `--allow <rule>` | Turn one firewall rule off for this session; repeat it for more rules |
 
 Flags go before the agent name. Everything after the agent name goes to the agent unchanged.
 
@@ -50,6 +51,7 @@ Flags go before the agent name. Everything after the agent name goes to the agen
 | `dc -t codex` | Codex inside tmux |
 | `dc -t -r claude` | Claude Code remote control inside tmux |
 | `dc -i claude` | Claude Code with only the current project visible |
+| `dc -a git claude` | Claude Code with git remotes open for this session |
 
 `claude` and `codex` on the Mac keep their normal behaviour. The `dc` function adds nothing and overrides nothing.
 
@@ -85,10 +87,12 @@ When a session with that name already exists, the command attaches to it instead
 
 1. The runner walks up from the current folder and looks for a folder named `Developer`.
 2. If it finds none, it prints `Not in Developer` and stops.
-3. It compares the hash of the resolved configuration with `.build-hash`. If they differ, it rebuilds the `devcontainer:latest` image.
-4. It creates a new container from that image and mounts all of `Developer` at `/workspaces/Developer`.
-5. It opens the agent in the folder you ran the command from.
-6. On exit it deletes the container.
+3. It reads the firewall rules and prints their state.
+4. It compares the hash of the resolved configuration with `.build-hash`. If they differ, it rebuilds the `devcontainer:latest` image.
+5. It creates a new container from that image and mounts all of `Developer` at the same path it has on the Mac.
+6. Inside, `entrypoint.sh` runs as root: it writes the firewall rules, then drops to the `vscode` user for good.
+7. It opens the agent in the folder you ran the command from.
+8. On exit it deletes the container.
 
 Start time: about 1 second.
 
@@ -234,37 +238,113 @@ Without this, an agent in the container could write a hook that the next session
 
 Everything else in those folders stays writable, so history, login and caches keep working.
 
-## Git
+## Firewall
 
-The container makes local commits. It reaches no remote.
+The container runs an outbound firewall. Rules block destinations by name, by address or by port. Every rule is **on** by default, and you turn a rule off for one session with `-a`.
 
-| Operation | State |
+```
+dc claude              every rule on
+dc -a prod claude      the prod rule off for this session
+dc -a git -a prod ...  two rules off
+dc -a all claude       every rule off
+```
+
+At start the runner prints the state of each rule:
+
+```
+  ⬢  firewall
+
+    git      blocked   port 22, github.com, gitlab.com, bitbucket.org, ...
+    prod     allowed   this session
+```
+
+### Where the rules live
+
+| File | Scope |
 | --- | --- |
-| `git add`, `git commit`, `git log`, `git branch`, `git merge` | works |
-| `git fetch`, `git pull`, `git push`, `git clone` | blocked |
-| `gh` | no credentials |
+| `~/.devcontainer/firewall.rules` | every session |
+| `<project>/.dc-firewall` | sessions that can see that project |
 
-The block uses three measures:
+In the default mode the container sees the whole `Developer` folder, so the runner loads the `.dc-firewall` of **every** project in it. Without this, you could start the agent from another folder and reach the production of a project next door. In isolated mode it loads only the file of the current project.
 
-1. The `GIT_ALLOW_PROTOCOL=file` variable, which denies Git the `ssh`, `https`, `http` and `git` transports.
-2. The SSH agent of the Mac does not enter the container.
-3. The `~/.config/gh` folder does not enter the container.
+The container mounts every `.dc-firewall` read-only, so the agent cannot relax a rule for the next session.
 
-The commit identity comes from `~/.gitconfig`, mounted read-only.
+### Rule format
 
-To push, leave the container and use the Mac.
+One rule per line: `<name> <kind> <value>`. Lines that share a name form one rule, which `-a <name>` turns off as a unit.
 
-## Network: not restricted yet
+| Kind | Blocks | Use it for |
+| --- | --- | --- |
+| `host` | any TCP connection that carries this name in clear text: the TLS server name, or the HTTP `Host` header | hosts behind a CDN, such as Supabase and Cloudflare |
+| `addr` | the IP addresses of a name, resolved at start, or a literal IP or CIDR | dedicated addresses |
+| `port` | every outbound TCP connection to this port | whole protocols, such as SSH on port 22 |
 
-The container reaches any address. Nothing limits outbound traffic today.
+A `host` value also matches every name that contains it, so `github.com` covers `api.github.com`. A bare Supabase project ref covers the API, the direct database and a pooler connection without TLS.
 
-This matters for prompt injection: a project that carries hostile text in its code, its README or a dependency can tell the agent to send out what it reads.
+Example, `spotfish/.dc-firewall`:
 
-Planned, not built yet: a per-project rules file that the runner mounts, plus an egress firewall inside the container. The reference dev container of Anthropic ships an `init-firewall.sh` that limits outbound traffic to an allow list, and needs the `NET_ADMIN` and `NET_RAW` capabilities.
+```
+prod host mxurdwiorcfbovxezquy
+prod host api.spotfish.app
+prod host mcp.supabase.com
+prod host api.supabase.com
+prod addr db.mxurdwiorcfbovxezquy.supabase.co
+```
 
-The allow list has to cover at least the agent APIs, the npm registry and GitHub, or `pnpm install` stops working.
+The runner refuses to start when a line is invalid. A typo never turns a block off silently.
 
-Until then, treat the container as isolated from the **filesystem** of the Mac, not from the network.
+### Why names and not addresses
+
+Supabase and most modern APIs sit behind Cloudflare. Their IP addresses are anycast, shared by millions of sites, including the npm registry. Blocking the address of a production API would block unrelated sites at random. A `host` rule reads the name inside the connection instead, so it blocks exactly that service.
+
+### Why the agent cannot remove the firewall
+
+The container starts as root, writes the rules, then drops to the `vscode` user with `setpriv`:
+
+| Measure | Effect |
+| --- | --- |
+| `--no-new-privs` | `sudo` stops working, and no setuid program can raise privileges |
+| `--bounding-set=-net_admin,-net_raw` | even a root process could no longer change the rules |
+
+A rule is enforced by the kernel. An agent that writes its own script, in any language, meets the same rule. The rules stay fixed until the session ends.
+
+The cost: the agent has no `sudo`. It cannot install system packages. Add them to `devcontainer.json` instead.
+
+### Extra measures when a host rule is on
+
+| Measure | Reason |
+| --- | --- |
+| Outbound UDP port 443 blocked | HTTP/3 over QUIC hides the server name from the rule; clients fall back to TCP |
+| `cloudflare-ech.com` blocked | Encrypted Client Hello on Cloudflare hides the real server name behind this one |
+
+### Git
+
+The `git` rule blocks SSH on port 22, the three big Git hosts by name, and their SSH-over-443 endpoints by address.
+
+When the rule is on, `git fetch`, `pull`, `push` and `clone` fail. Local commits keep working. The agent also cannot reach the GitHub API, which can write to a repository as well.
+
+With `-a git`, public repositories are readable. Pushing still needs credentials, and the container holds none: the SSH agent and `~/.config/gh` stay on the Mac.
+
+A side effect: while the rule is on, `pnpm install` fails for dependencies that come from a GitHub URL.
+
+### Known limits
+
+| Case | State |
+| --- | --- |
+| A client that sends Encrypted Client Hello to a host outside Cloudflare | not covered |
+| The shared Supabase pooler over TLS, which carries the project ref only inside the encrypted stream | not covered; it also needs the database password, which the container does not hold |
+| Names that do not resolve inside the container | skipped; the container cannot reach them by name either |
+| IPv6 | the container has no IPv6 route today; rules are also written to `ip6tables` |
+
+### Testing a rule
+
+`run.sh` accepts a hidden agent, `shell`, which opens `bash` inside a normal session with the same firewall:
+
+```sh
+~/.devcontainer/run.sh shell -c 'curl -s -o /dev/null -w "%{http_code}\n" https://api.example.com/'
+```
+
+`000` means the firewall closed the connection. Any other code means the request reached the server.
 
 ## Mouse, scroll and copy
 
