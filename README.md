@@ -254,6 +254,18 @@ The commit identity comes from `~/.gitconfig`, mounted read-only.
 
 To push, leave the container and use the Mac.
 
+## Network: not restricted yet
+
+The container reaches any address. Nothing limits outbound traffic today.
+
+This matters for prompt injection: a project that carries hostile text in its code, its README or a dependency can tell the agent to send out what it reads.
+
+Planned, not built yet: a per-project rules file that the runner mounts, plus an egress firewall inside the container. The reference dev container of Anthropic ships an `init-firewall.sh` that limits outbound traffic to an allow list, and needs the `NET_ADMIN` and `NET_RAW` capabilities.
+
+The allow list has to cover at least the agent APIs, the npm registry and GitHub, or `pnpm install` stops working.
+
+Until then, treat the container as isolated from the **filesystem** of the Mac, not from the network.
+
 ## Mouse, scroll and copy
 
 The mouse goes to the agent. The wheel scrolls the chat.
