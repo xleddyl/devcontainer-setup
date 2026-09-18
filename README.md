@@ -25,7 +25,7 @@ You need Docker Desktop, the `devcontainer` CLI (`npm install -g @devcontainers/
 One command, `dc`. Run it with no arguments to see the usage.
 
 ```
-dc [-t|--tmux] [-r|--remote] <agent> [args...]
+dc [-t|--tmux] [-r|--remote] [-i|--isolated] <agent> [args...]
 ```
 
 | Agent | Tool |
@@ -37,6 +37,7 @@ dc [-t|--tmux] [-r|--remote] <agent> [args...]
 | --- | --- |
 | `-t`, `--tmux` | Run the session inside tmux |
 | `-r`, `--remote` | Remote control mode |
+| `-i`, `--isolated` | Mount only the current project, not the whole `Developer` folder |
 
 Flags go before the agent name. Everything after the agent name goes to the agent unchanged.
 
@@ -48,8 +49,24 @@ Flags go before the agent name. Everything after the agent name goes to the agen
 | `dc -r codex` | `codex remote-control start` |
 | `dc -t codex` | Codex inside tmux |
 | `dc -t -r claude` | Claude Code remote control inside tmux |
+| `dc -i claude` | Claude Code with only the current project visible |
 
 `claude` and `codex` on the Mac keep their normal behaviour. The `dc` function adds nothing and overrides nothing.
+
+### Isolated mode
+
+By default the container mounts the whole `Developer` folder, so sibling projects can reach each other.
+
+With `-i` the container mounts only the project you run the command from: the Git repository root, or the current folder outside a repository. Sibling projects stay invisible.
+
+| Mode | Mounted | Container path |
+| --- | --- | --- |
+| default | `~/Developer` | `/workspaces/Developer/<group>/<project>` |
+| `-i` | the project only | `/workspaces/<project>` |
+
+Both modes share the same `node_modules` volumes, because the volume name comes from the absolute path of the folder on the Mac. You install once and both modes use it.
+
+An isolated session gets its own tmux session name, with an `iso` suffix.
 
 ### tmux sessions
 

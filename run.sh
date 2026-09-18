@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+isolated=0
+if [ "${1:-}" = "--isolated" ]; then
+  isolated=1
+  shift
+fi
+
 agent="${1:-claude}"
 shift || true
 case "$agent" in
@@ -30,7 +36,9 @@ find_root() {
   return 1
 }
 
-if ! workspace="$(find_root)"; then
+if [ "$isolated" = "1" ]; then
+  workspace="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+elif ! workspace="$(find_root)"; then
   b=$'\033[1m'; d=$'\033[2m'; r=$'\033[0m'
   y=$'\033[38;2;229;192;123m'; c=$'\033[38;2;97;175;239m'
   printf '\n  %s%s⬢  Not in %s%s\n\n' "$b" "$y" "$root_name" "$r"
@@ -128,7 +136,7 @@ if [ -n "$project_root" ] && [ "${project_root#"$workspace"}" != "$project_root"
     nm_rel="${pkg_dir#"$workspace"}"
     nm_rel="${nm_rel#/}"
     nm_target="$workspace_target/$nm_rel/node_modules"
-    nm_name="devcontainer-nm-$(printf '%s' "$workspace|$nm_rel" | shasum -a 256 | cut -c1-16)"
+    nm_name="devcontainer-nm-$(printf '%s' "$pkg_dir" | shasum -a 256 | cut -c1-16)"
     mount_args+=(-v "$nm_name:$nm_target")
     chown_dirs+=("$nm_target")
   done < <(find "$project_root" -maxdepth 3 -name package.json -not -path "*/node_modules/*" 2>/dev/null)
@@ -151,6 +159,7 @@ fi
 
 exec docker run "${run_opts[@]}" \
   --name "$agent-$(basename "${PWD}")-$$" \
+  --label "devcontainer.isolated=$isolated" \
   -u vscode \
   -w "$workdir" \
   -e CLAUDE_CONFIG_DIR=/home/vscode/.claude \
