@@ -1,0 +1,4 @@
+.build-hash
+.resolved.json
+devcontainer-lock.json
+.devcontainer-lock.json
