@@ -17,7 +17,7 @@
     "ghcr.io/devcontainers-extra/features/pnpm:2": {},
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
     "ghcr.io/devcontainers-extra/features/bash-command:1": {
-      "command": "apt-get update && apt-get install -y --no-install-recommends iptables && rm -rf /var/lib/apt/lists/* && npm install -g @anthropic-ai/claude-code@__CLAUDE_VERSION__ @openai/codex@__CODEX_VERSION__"
+      "command": "npm install -g @anthropic-ai/claude-code@__CLAUDE_VERSION__ @openai/codex@__CODEX_VERSION__"
     }
   },
   "overrideFeatureInstallOrder": [

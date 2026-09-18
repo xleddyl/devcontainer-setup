@@ -1,7 +1,0 @@
-git port 22
-git host github.com
-git host gitlab.com
-git host bitbucket.org
-git addr ssh.github.com
-git addr altssh.gitlab.com
-git addr altssh.bitbucket.org
