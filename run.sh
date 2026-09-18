@@ -5,7 +5,7 @@ agent="${1:-claude}"
 shift || true
 case "$agent" in
   claude | codex) ;;
-  *) echo "agente sconosciuto: $agent (usa claude o codex)" >&2; exit 1 ;;
+  *) echo "unknown agent: $agent (use claude or codex)" >&2; exit 1 ;;
 esac
 
 image="devcontainer:latest"
@@ -34,17 +34,17 @@ if ! workspace="$(find_root)"; then
   b=$'\033[1m'; d=$'\033[2m'; r=$'\033[0m'
   y=$'\033[38;2;229;192;123m'; c=$'\033[38;2;97;175;239m'
   printf '\n  %s%s⬢  Not in %s%s\n\n' "$b" "$y" "$root_name" "$r"
-  printf '  Il dev container monta la cartella %s%s%s.\n' "$c" "$root_name" "$r"
-  printf '  Questa cartella non si trova dentro nessuna cartella %s%s%s.\n\n' "$c" "$root_name" "$r"
-  printf '  %sCartella corrente%s\n    %s%s%s\n\n' "$d" "$r" "$d" "$PWD" "$r"
-  printf '  %sCosa puoi fare%s\n' "$d" "$r"
-  printf '    %s%-20s%s vai in un progetto\n' "$c" "cd ~/$root_name/..." "$r"
-  printf '    %s%-20s%s avvia %s sul Mac\n\n' "$c" "$agent" "$r" "$agent"
+  printf '  The dev container mounts the %s%s%s folder.\n' "$c" "$root_name" "$r"
+  printf '  This folder is not inside any %s%s%s folder.\n\n' "$c" "$root_name" "$r"
+  printf '  %sCurrent folder%s\n    %s%s%s\n\n' "$d" "$r" "$d" "$PWD" "$r"
+  printf '  %sWhat you can do%s\n' "$d" "$r"
+  printf '    %s%-20s%s go to a project\n' "$c" "cd ~/$root_name/..." "$r"
+  printf '    %s%-20s%s run %s on the Mac\n\n' "$c" "$agent" "$r" "$agent"
   exit 1
 fi
 
 if ! docker info >/dev/null 2>&1; then
-  echo "docker non e' in esecuzione: avvia Docker Desktop" >&2
+  echo "docker is not running: start Docker Desktop" >&2
   exit 1
 fi
 
@@ -67,7 +67,7 @@ host_version() {
 claude_version="$(host_version claude)"
 codex_version="$(host_version codex)"
 if [ -z "$claude_version" ] || [ -z "$codex_version" ]; then
-  echo "impossibile leggere le versioni di claude o codex sul Mac" >&2
+  echo "cannot read the claude or codex version on the Mac" >&2
   exit 1
 fi
 
@@ -80,14 +80,14 @@ config_hash="$(shasum -a 256 "$config_file" | cut -d" " -f1)"
 needs_build=0
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   needs_build=1
-  echo ">> immagine $image assente"
+  echo ">> image $image is missing"
 elif [ ! -f "$hash_file" ] || [ "$(cat "$hash_file")" != "$config_hash" ]; then
   needs_build=1
-  echo ">> configurazione o versioni cambiate: claude $claude_version, codex $codex_version"
+  echo ">> configuration or versions changed: claude $claude_version, codex $codex_version"
 fi
 
 if [ "$needs_build" = "1" ]; then
-  echo ">> costruisco l'immagine $image"
+  echo ">> building image $image"
   devcontainer build --workspace-folder "$image_config" --config "$config_file" --image-name "$image"
   printf '%s' "$config_hash" > "$hash_file"
 fi
@@ -96,7 +96,7 @@ host_config="$HOME/.claude.json"
 container_config="$HOME/.claude/.claude.json"
 if [ -f "$host_config" ] && ! grep -q '"oauthAccount"' "$container_config" 2>/dev/null; then
   cp "$host_config" "$container_config"
-  echo ">> impostazioni di ~/.claude.json copiate nel container"
+  echo ">> copied ~/.claude.json settings into the container"
 fi
 
 busy="$(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {print $9}' | sed 's/.*://' | sort -u)"
@@ -173,21 +173,21 @@ exec docker run "${run_opts[@]}" \
       if [ -t 0 ]; then
         b=$(printf "\033[1m"); dim=$(printf "\033[2m"); rst=$(printf "\033[0m")
         yel=$(printf "\033[38;2;229;192;123m"); cya=$(printf "\033[38;2;97;175;239m")
-        printf "\n  %s%s⬢  node_modules vuoto%s\n\n" "$b" "$yel" "$rst"
-        printf "  %sProgetto%s  %s\n" "$dim" "$rst" "${DC_PROJECT_DIR#/workspaces/}"
-        printf "  Il container ha un %snode_modules%s separato da quello del Mac.\n\n" "$cya" "$rst"
-        printf "  Vuoi lanciare %spnpm install%s adesso? %s[Y/n]%s " "$cya" "$rst" "$dim" "$rst"
+        printf "\n  %s%s⬢  node_modules is empty%s\n\n" "$b" "$yel" "$rst"
+        printf "  %sProject%s  %s\n" "$dim" "$rst" "${DC_PROJECT_DIR#/workspaces/}"
+        printf "  The container keeps a %snode_modules%s separate from the Mac one.\n\n" "$cya" "$rst"
+        printf "  Run %spnpm install%s now? %s[Y/n]%s " "$cya" "$rst" "$dim" "$rst"
         read -r ans
         case "$ans" in
-          [nN]*) printf "\n  %ssaltato%s\n\n" "$dim" "$rst" ;;
+          [nN]*) printf "\n  %sskipped%s\n\n" "$dim" "$rst" ;;
           *) do_install=1 ;;
         esac
       else
-        printf "\033[38;2;229;192;123m>> node_modules vuoto: lancia pnpm install\033[0m\n"
+        printf "\033[38;2;229;192;123m>> node_modules is empty: run pnpm install\033[0m\n"
       fi
       if [ -n "$do_install" ]; then
         printf "\n"
-        ( cd "$DC_PROJECT_DIR" && pnpm install ) || echo ">> pnpm install fallito, continuo"
+        ( cd "$DC_PROJECT_DIR" && pnpm install ) || echo ">> pnpm install failed, continuing"
         printf "\n"
       fi
     fi

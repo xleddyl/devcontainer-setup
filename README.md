@@ -10,7 +10,7 @@ One dev container that runs Claude Code and Codex isolated from the Mac, with th
 git clone git@github.com:xleddyl/devcontainer-setup.git ~/.devcontainer
 ```
 
-2. Add the functions to your `~/.zshrc`.
+2. Source the functions from your `~/.zshrc`.
 
 ```sh
 echo 'source ~/.devcontainer/shell-functions.zsh' >> ~/.zshrc
@@ -28,14 +28,27 @@ You need Docker Desktop, the `devcontainer` CLI (`npm install -g @devcontainers/
 | `cr` | Claude Code remote control in the dev container |
 | `cdx` | Codex in the dev container |
 | `cdxr` | Codex remote control in the dev container |
-| `claude` | Claude Code on the Mac, the original command |
-| `codex` | Codex on the Mac, the original command |
 
 The four functions live in `shell-functions.zsh`. Every other argument goes to the agent unchanged.
 
 `cr` runs `claude rc --spawn=same-dir`. `cdxr` runs `codex remote-control start`.
 
 The `cc` function shadows the C compiler with the same name. To reach it, use `command cc`.
+
+### The -t flag
+
+Add `-t` to any of the four commands to run the session inside tmux.
+
+| Command | tmux session name |
+| --- | --- |
+| `cc -t` | `<folder>` |
+| `cr -t` | `<folder>-rc` |
+| `cdx -t` | `<folder>-cdx` |
+| `cdxr -t` | `<folder>-cdxr` |
+
+The name comes from the current folder. When a session with that name already exists, the command attaches to it instead of starting a second one. Inside tmux it switches the client; outside tmux it attaches.
+
+The flag never reaches the agent.
 
 ## How it works
 
@@ -126,15 +139,15 @@ The volume name is `devcontainer-nm-<hash>`, stable for each folder.
 `pnpm install` does **not** run on its own. If `node_modules` is empty, the runner asks a question before it opens the agent:
 
 ```
-  ⬢  node_modules vuoto
+  ⬢  node_modules is empty
 
-  Progetto  Developer/xleddyl/altea-villa-cipriani
-  Il container ha un node_modules separato da quello del Mac.
+  Project  Developer/xleddyl/altea-villa-cipriani
+  The container keeps a node_modules separate from the Mac one.
 
-  Vuoi lanciare pnpm install adesso? [Y/n]
+  Run pnpm install now? [Y/n]
 ```
 
-The runner prints its messages in Italian. The default answer is yes. Press Enter to accept. Answer `n` to skip.
+The default answer is yes. Press Enter to accept. Answer `n` to skip.
 
 Outside an interactive terminal the question does not appear: the runner prints a warning instead.
 
