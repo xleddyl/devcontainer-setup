@@ -61,8 +61,8 @@ With `-i` the container mounts only the project you run the command from: the Gi
 
 | Mode | Mounted | Container path |
 | --- | --- | --- |
-| default | `~/Developer` | `/workspaces/Developer/<group>/<project>` |
-| `-i` | the project only | `/workspaces/<project>` |
+| default | `~/Developer` | the same path as on the Mac |
+| `-i` | the project only | the same path as on the Mac |
 
 Both modes share the same `node_modules` volumes, because the volume name comes from the absolute path of the folder on the Mac. You install once and both modes use it.
 
@@ -98,11 +98,10 @@ All sibling folders are visible, so projects can reach each other.
 
 | Item | Path in the container |
 | --- | --- |
-| The whole `Developer` folder | `/workspaces/Developer` |
-| Host `~/.claude`, shared read-write | `/home/vscode/.claude` |
-| Host `~/.codex`, shared read-write | `/home/vscode/.codex` |
+| The whole `Developer` folder | the same path as on the Mac |
+| Host `~/.claude`, read-write | `/home/vscode/.claude` |
+| Host `~/.codex`, read-write | `/home/vscode/.codex` |
 | Copy of host `~/.claude.json` | `/home/vscode/.claude/.claude.json` |
-| Host Docker socket | `/var/run/docker.sock` |
 | `~/.gitconfig`, read-only | `/home/vscode/.gitconfig` |
 | npm cache | volume `devcontainer-npm` |
 | General cache | volume `devcontainer-cache` |
@@ -110,6 +109,22 @@ All sibling folders are visible, so projects can reach each other.
 | `node_modules` of the current project | volumes `devcontainer-nm-<hash>` |
 
 The rest of the Mac stays outside.
+
+### Paths match the Mac
+
+The container mounts every folder at the same absolute path it has on the Mac. A project at `/Users/you/Developer/app` is at `/Users/you/Developer/app` inside the container too.
+
+This keeps one session history per project. Claude Code indexes its history by absolute path, so a different path inside the container would split the same project into two separate histories.
+
+### The Docker socket stays outside
+
+The container cannot reach the Docker daemon of the Mac.
+
+A mounted Docker socket is the full daemon API. Any process that reaches it can start a second container with any bind mount, including the root of the Mac, as root. That would cancel every other measure on this page.
+
+No filter fixes this: the bind mount is a field inside the request body, not a separate endpoint, so a socket proxy cannot deny it reliably.
+
+The cost is real: `docker compose` and tools that drive Docker do not work inside the container. Run those on the Mac.
 
 The copy of `~/.claude.json` happens once, until the file in the container contains `oauthAccount`.
 
@@ -202,6 +217,22 @@ To delete every `node_modules` volume:
 ```sh
 docker volume ls -q --filter name=devcontainer-nm- | xargs docker volume rm
 ```
+
+## What the container cannot change
+
+`~/.claude` and `~/.codex` are mounted read-write, because the agents write their history, credentials and caches there. A few paths inside them are mounted read-only on top, because the **Mac** executes them:
+
+| Read-only path | Why |
+| --- | --- |
+| `~/.claude/settings.json`, `settings.local.json` | They define hooks, which run on the Mac |
+| `~/.claude/statusline-command.sh`, `fetch-usage.sh` | Claude Code runs them on the Mac |
+| `~/.claude/plugins`, `skills`, `output-styles` | They can carry commands and hooks |
+| `~/.codex/config.toml` | It defines MCP servers, which start processes |
+| `~/.codex/plugins`, `skills` | Same reason |
+
+Without this, an agent in the container could write a hook that the next session on the Mac would run.
+
+Everything else in those folders stays writable, so history, login and caches keep working.
 
 ## Git
 

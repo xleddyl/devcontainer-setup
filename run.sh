@@ -56,13 +56,8 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-workspace_target="/workspaces/$(basename "$workspace")"
-rel="${PWD#"$workspace"}"
-rel="${rel#/}"
-workdir="$workspace_target"
-if [ -n "$rel" ]; then
-  workdir="$workspace_target/$rel"
-fi
+workspace_target="$workspace"
+workdir="$PWD"
 
 template_file="$image_config/devcontainer.json"
 config_file="$image_config/.resolved.json"
@@ -126,28 +121,34 @@ mount_args=(
 chown_dirs=("$workspace_target/.pnpm-store")
 
 project_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-project_rel=""
 if [ -n "$project_root" ] && [ "${project_root#"$workspace"}" != "$project_root" ]; then
-  project_rel="${project_root#"$workspace"}"
-  project_rel="${project_rel#/}"
   while IFS= read -r pj; do
     [ -n "$pj" ] || continue
     pkg_dir="$(dirname "$pj")"
-    nm_rel="${pkg_dir#"$workspace"}"
-    nm_rel="${nm_rel#/}"
-    nm_target="$workspace_target/$nm_rel/node_modules"
+    nm_target="$pkg_dir/node_modules"
     nm_name="devcontainer-nm-$(printf '%s' "$pkg_dir" | shasum -a 256 | cut -c1-16)"
     mount_args+=(-v "$nm_name:$nm_target")
     chown_dirs+=("$nm_target")
   done < <(find "$project_root" -maxdepth 3 -name package.json -not -path "*/node_modules/*" 2>/dev/null)
 fi
 
-if [ -S /var/run/docker.sock ]; then
-  mount_args+=(-v /var/run/docker.sock:/var/run/docker.sock)
-fi
 if [ -d "$HOME/.codex" ]; then
   mount_args+=(-v "$HOME/.codex:/home/vscode/.codex")
 fi
+
+readonly_claude=(settings.json settings.local.json statusline-command.sh fetch-usage.sh plugins skills output-styles)
+for item in ${readonly_claude[@]+"${readonly_claude[@]}"}; do
+  if [ -e "$HOME/.claude/$item" ]; then
+    mount_args+=(-v "$HOME/.claude/$item:/home/vscode/.claude/$item:ro")
+  fi
+done
+
+readonly_codex=(config.toml plugins skills)
+for item in ${readonly_codex[@]+"${readonly_codex[@]}"}; do
+  if [ -e "$HOME/.codex/$item" ]; then
+    mount_args+=(-v "$HOME/.codex/$item:/home/vscode/.codex/$item:ro")
+  fi
+done
 if [ -f "$HOME/.gitconfig" ]; then
   mount_args+=(-v "$HOME/.gitconfig:/home/vscode/.gitconfig:ro")
 fi
@@ -165,14 +166,14 @@ exec docker run "${run_opts[@]}" \
   -e CLAUDE_CONFIG_DIR=/home/vscode/.claude \
   -e GIT_ALLOW_PROTOCOL=file \
   -e DC_CHOWN_DIRS="$(printf '%s\n' ${chown_dirs[@]+"${chown_dirs[@]}"})" \
-  -e DC_PROJECT_DIR="${project_root:+$workspace_target/$project_rel}" \
+  -e DC_PROJECT_DIR="${project_root:-}" \
+  -e DC_PROJECT_LABEL="${project_root#"$HOME"/}" \
   -e DC_AGENT="$agent" \
   "${term_args[@]}" \
   "${mount_args[@]}" \
   ${port_args[@]+"${port_args[@]}"} \
   "$image" \
   bash -lc '
-    sudo chown root:docker /var/run/docker.sock 2>/dev/null || true
     printf "%s\n" "$DC_CHOWN_DIRS" | while IFS= read -r d; do
       [ -n "$d" ] && sudo mkdir -p "$d" && sudo chown "$(id -u):$(id -g)" "$d" 2>/dev/null
     done
@@ -183,7 +184,7 @@ exec docker run "${run_opts[@]}" \
         b=$(printf "\033[1m"); dim=$(printf "\033[2m"); rst=$(printf "\033[0m")
         yel=$(printf "\033[38;2;229;192;123m"); cya=$(printf "\033[38;2;97;175;239m")
         printf "\n  %s%s⬢  node_modules is empty%s\n\n" "$b" "$yel" "$rst"
-        printf "  %sProject%s  %s\n" "$dim" "$rst" "${DC_PROJECT_DIR#/workspaces/}"
+        printf "  %sProject%s  %s\n" "$dim" "$rst" "$DC_PROJECT_LABEL"
         printf "  The container keeps a %snode_modules%s separate from the Mac one.\n\n" "$cya" "$rst"
         printf "  Run %spnpm install%s now? %s[Y/n]%s " "$cya" "$rst" "$dim" "$rst"
         read -r ans
